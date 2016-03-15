@@ -18,13 +18,15 @@ import warnings
 
 from django.conf import settings
 from hashlib import md5
+from threading import Lock
 
 from raven._compat import PY2, binary_type, text_type, string_types
 from raven.utils.imports import import_string
 from raven.contrib.django.management import patch_cli_runner
 
-
 logger = logging.getLogger('sentry.errors.client')
+
+settings_lock = Lock()
 
 
 def get_installed_apps():
@@ -239,9 +241,26 @@ def register_serializers():
     import raven.contrib.django.serializers  # NOQA
 
 
+def install_middleware():
+    """
+    Force installation of SentryMiddlware if it's not explicitly present.
+
+    This ensures things like request context and transaction names are made
+    available.
+    """
+    name = 'raven.contrib.django.middleware.SentryMiddleware'
+    all_names = (name, 'raven.contrib.django.middleware.SentryLogMiddleware')
+    with settings_lock:
+        middleware_list = set(settings.MIDDLEWARE_CLASSES)
+        if not any(n in middleware_list for n in all_names):
+            settings.MIDDLEWARE_CLASSES = (
+                name,
+            ) + settings.MIDDLEWARE_CLASSES
+
+
 if ('raven.contrib.django' in settings.INSTALLED_APPS
         or 'raven.contrib.django.raven_compat' in settings.INSTALLED_APPS):
     register_handlers()
     register_serializers()
-
+    install_middleware()
     patch_cli_runner()
