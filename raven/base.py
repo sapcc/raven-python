@@ -141,10 +141,23 @@ class Client(object):
     protocol_version = '6'
 
     _registry = TransportRegistry(transports=default_transports)
+    _pid = os.getpid()
+
+    @classmethod
+    def _check_pid(cls):
+        global Raven
+
+        if cls._pid != os.getpid():
+            cls.logger = logging.getLogger('raven')
+            cls.protocol_version = '6'
+            cls._registry = TransportRegistry(transports=default_transports)
+            cls._pid = os.getpid()
+            Raven = None
 
     def __init__(self, dsn=None, raise_send_errors=False, transport=None,
                  install_sys_hook=True, install_logging_hook=True,
                  hook_libraries=None, enable_breadcrumbs=True, **options):
+        self._check_pid()
         global Raven
 
         o = options
@@ -259,6 +272,7 @@ class Client(object):
 
     @classmethod
     def register_scheme(cls, scheme, transport_class):
+        cls._check_pid()
         cls._registry.register_scheme(scheme, transport_class)
 
     def get_processors(self):
