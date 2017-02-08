@@ -88,8 +88,8 @@ def send_test_message(client, options):
 def main():
     root = logging.getLogger('sentry.errors')
     root.setLevel(logging.DEBUG)
-    # if len(root.handlers) == 0:
-    #     root.addHandler(logging.StreamHandler())
+    if len(root.handlers) == 0:
+         root.addHandler(logging.StreamHandler())
 
     parser = OptionParser(version=get_version())
     parser.add_option("--data", action="callback", callback=store_json,
