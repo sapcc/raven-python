@@ -5,6 +5,14 @@ Django
 
 `Django <http://djangoproject.com/>`_ version 1.4 and newer are supported.
 
+Installation
+------------
+
+If you haven't already, start by downloading Raven. The easiest way is
+with *pip*::
+
+	pip install raven --upgrade
+
 Setup
 -----
 
@@ -28,7 +36,7 @@ Additional settings for the client are configured using the
         'dsn': '___DSN___',
         # If you are using git, you can also automatically configure the
         # release based on the git info.
-        'release': raven.fetch_git_sha(os.path.dirname(os.pardir)),
+        'release': raven.fetch_git_sha(os.path.abspath(os.pardir)),
     }
 
 Once you've configured the client, you can test it using the standard Django
@@ -82,6 +90,10 @@ ERROR and above messages to sentry, the following config can be used::
     LOGGING = {
         'version': 1,
         'disable_existing_loggers': True,
+        'root': {
+            'level': 'WARNING',
+            'handlers': ['sentry'],
+        },
         'formatters': {
             'verbose': {
                 'format': '%(levelname)s %(asctime)s %(module)s '
@@ -101,10 +113,6 @@ ERROR and above messages to sentry, the following config can be used::
             }
         },
         'loggers': {
-            'root': {
-                'level': 'WARNING',
-                'handlers': ['sentry'],
-            },
             'django.db.backends': {
                 'level': 'ERROR',
                 'handlers': ['console'],
@@ -196,8 +204,7 @@ reference ID. The first step in doing this is creating a custom
     from django.conf.urls.defaults import *
 
     from django.views.defaults import page_not_found, server_error
-    from django.template import Context, loader
-    from django.http import HttpResponseServerError
+    from django.template.response import TemplateResponse
 
     def handler500(request):
         """500 error handler which includes ``request`` in the context.
@@ -206,10 +213,9 @@ reference ID. The first step in doing this is creating a custom
         Context: None
         """
 
-        t = loader.get_template('500.html') # You need to create a 500.html template.
-        return HttpResponseServerError(t.render(Context({
-            'request': request,
-        })))
+        context = {'request': request}
+        template_name = '500.html'  # You need to create a 500.html template.
+        return TemplateResponse(request, template_name, context, status=500)
 
 Once we've successfully added the :data:`request` context variable, adding the
 Sentry reference ID to our :file:`500.html` is simple:
@@ -297,6 +303,12 @@ Additional Settings
         RAVEN_CONFIG = {
             'CELERY_LOGLEVEL': logging.INFO
         }
+
+.. describe:: SENTRY_CELERY_IGNORE_EXPECTED
+
+    If you are also using Celery, then you can ignore expected exceptions by
+    setting this to ``True``. This will cause exception classes in
+    ``Task.throws`` to be ignored.
 
 Caveats
 -------

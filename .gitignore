@@ -3,7 +3,8 @@
 *.egg
 *.db
 *.pid
-.coverage
+.python-version
+.coverage*
 .DS_Store
 .tox
 pip-log.txt
@@ -24,3 +25,4 @@ lib/
 .idea
 .eggs
 venv
+.vscode/tags

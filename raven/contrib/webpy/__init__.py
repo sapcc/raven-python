@@ -37,6 +37,7 @@ class SentryApplication(web.application):
 
     >>> sentry.captureMessage('hello, world!')
     """
+
     def __init__(self, client, logging=False, **kwargs):
         self.client = client
         self.logging = logging
@@ -56,7 +57,7 @@ class SentryApplication(web.application):
     def handle(self):
         try:
             return web.application.handle(self)
-        except:
+        except Exception:
             self.handle_exception(exc_info=sys.exc_info())
             raise
 

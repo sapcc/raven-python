@@ -17,6 +17,7 @@ client.
    celery
    django
    flask
+   lambda
    logbook
    logging
    pylons
@@ -24,5 +25,6 @@ client.
    rq
    tornado
    wsgi
+   zconfig
    zerorpc
    zope

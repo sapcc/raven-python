@@ -9,10 +9,13 @@ from __future__ import absolute_import
 
 from contextlib import contextmanager
 
-from raven._compat import Iterator, next
+from raven.utils.compat import Iterator, next
 from raven.utils.wsgi import (
     get_current_url, get_headers, get_environ)
 
+import logging
+
+logger = logging.getLogger('raven')
 
 @contextmanager
 def common_exception_handling(environ, client):
@@ -83,20 +86,29 @@ class Sentry(object):
     >>> from raven.base import Client
     >>> application = Sentry(application, Client())
     """
+
     def __init__(self, application, client=None):
         self.application = application
-        if client is None:
-            from raven.base import Client
-            client = Client()
+        try:
+            if client is None:
+                from raven.base import Client
+                client = Client()
+        except Exception as e:
+            logger.error(e)
+            client = None
         self.client = client
 
     def __call__(self, environ, start_response):
-        # TODO(dcramer): ideally this is lazy, but the context helpers must
-        # support callbacks first
-        self.client.http_context(self.get_http_context(environ))
-        with common_exception_handling(environ, self):
-            iterable = self.application(environ, start_response)
-        return ClosingIterator(self, iterable, environ)
+        # all this only makes sense only if we have a functional client..
+        if self.client:
+            # TODO(dcramer): ideally this is lazy, but the context helpers must
+            # support callbacks first
+            self.client.http_context(self.get_http_context(environ))
+            with common_exception_handling(environ, self):
+                iterable = self.application(environ, start_response)
+            return ClosingIterator(self, iterable, environ)
+        else:
+            return self.application(environ, start_response)
 
     def get_http_context(self, environ):
         return {
@@ -108,9 +120,6 @@ class Sentry(object):
             'headers': dict(get_headers(environ)),
             'env': dict(get_environ(environ)),
         }
-
-    def process_response(self, request, response):
-        self.client.context.clear()
 
     def handle_exception(self, environ=None):
         return self.client.captureException()

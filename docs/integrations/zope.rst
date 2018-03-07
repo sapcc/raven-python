@@ -1,11 +1,19 @@
 Zope/Plone
 ==========
 
+Installation
+------------
+
+If you haven't already, start by downloading Raven. The easiest way is
+with *pip*::
+
+	pip install raven --upgrade
+
 zope.conf
 ---------
 
 Zope has extensible logging configuration options.
-A basic setup for logging looks like that:
+A basic instance (not ZEO client) setup for logging looks like this:
 
 .. code-block:: xml
 
@@ -23,13 +31,13 @@ A basic setup for logging looks like that:
     </sentry>
   </eventlog>
 
-This configuration keeps the regular logging to a logfile, but adds
-logging to sentry for ERRORs.
+This configuration retains normal logging to a logfile, but adds
+Sentry logging for ERRORs.
 
 All options of :py:class:`raven.base.Client` are supported.
 
-Nobody writes zope.conf files these days, instead buildout recipe does
-that.  To add the equivalent configuration, you would do this:
+Use a buildout recipe instead of editing zope.conf directly.
+To add the equivalent instance configuration, you would do this:
 
 .. code-block:: ini
 
@@ -40,6 +48,24 @@ that.  To add the equivalent configuration, you would do this:
         %import raven.contrib.zope
         <logfile>
           path ${buildout:directory}/var/instance.log
+          level INFO
+        </logfile>
+        <sentry>
+          dsn ___DSN___
+          level ERROR
+        </sentry>
+
+To add the equivalent ZEO client configuration, you would do this:
+
+.. code-block:: ini
+
+    [instance]
+    recipe = plone.recipe.zope2instance
+    ...
+    event-log-custom =
+        %import raven.contrib.zope
+        <logfile>
+          path ${buildout:var-dir}/${:_buildout_section_name_}/event.log
           level INFO
         </logfile>
         <sentry>

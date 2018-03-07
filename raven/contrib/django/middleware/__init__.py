@@ -22,8 +22,6 @@ except ImportError:
     # https://docs.djangoproject.com/en/1.10/topics/http/middleware/#upgrading-pre-django-1-10-style-middleware
     MiddlewareMixin = object
 
-from raven.contrib.django.resolver import RouteResolver
-
 
 def is_ignorable_404(uri):
     """
@@ -71,6 +69,7 @@ class SentryResponseErrorIdMiddleware(MiddlewareMixin):
     Appends the X-Sentry-ID response header for referencing a message within
     the Sentry datastore.
     """
+
     def process_response(self, request, response):
         if not getattr(request, 'sentry', None):
             return response
@@ -78,50 +77,31 @@ class SentryResponseErrorIdMiddleware(MiddlewareMixin):
         return response
 
 
-# We need to make a base class for our sentry middleware that is thread
-# local but at the same time has the new fnagled middleware mixin applied
-# if such a thing exists.
-if MiddlewareMixin is object:
-    _SentryMiddlewareBase = threading.local
-else:
-    _SentryMiddlewareBase = type('_SentryMiddlewareBase', (MiddlewareMixin, threading.local), {})
-
-
-class SentryMiddleware(_SentryMiddlewareBase):
-    resolver = RouteResolver()
-
-    # backwards compat
-    @property
-    def thread(self):
-        return self
-
-    def _get_transaction_from_request(self, request):
-        # TODO(dcramer): it'd be nice to pull out parameters
-        # and make this a normalized path
-        return self.resolver.resolve(request.path)
+class SentryMiddleware(MiddlewareMixin):
+    thread = threading.local()
 
     def process_request(self, request):
         self._txid = None
-        self.thread.request = request
+
+        SentryMiddleware.thread.request = request
+        # we utilize request_finished as the exception gets reported
+        # *after* process_response is executed, and thus clearing the
+        # transaction there would leave it empty
+        # XXX(dcramer): weakref's cause a threading issue in certain
+        # versions of Django (e.g. 1.6). While they'd be ideal, we're under
+        # the assumption that Django will always call our function except
+        # in the situation of a process or thread dying.
+        request_finished.connect(self.request_finished, weak=False)
 
     def process_view(self, request, func, args, kwargs):
         from raven.contrib.django.models import client
 
         try:
             self._txid = client.transaction.push(
-                self._get_transaction_from_request(request)
+                client.get_transaction_from_request(request)
             )
         except Exception as exc:
-            client.error_logger.exception(repr(exc))
-        else:
-            # we utilize request_finished as the exception gets reported
-            # *after* process_response is executed, and thus clearing the
-            # transaction there would leave it empty
-            # XXX(dcramer): weakref's cause a threading issue in certain
-            # versions of Django (e.g. 1.6). While they'd be ideal, we're under
-            # the assumption that Django will always call our function except
-            # in the situation of a process or thread dying.
-            request_finished.connect(self.request_finished, weak=False)
+            client.error_logger.exception(repr(exc), extra={'request': request})
 
         return None
 
@@ -132,7 +112,29 @@ class SentryMiddleware(_SentryMiddlewareBase):
             client.transaction.pop(self._txid)
             self._txid = None
 
+        SentryMiddleware.thread.request = None
+
         request_finished.disconnect(self.request_finished)
 
 
 SentryLogMiddleware = SentryMiddleware
+
+
+class DjangoRestFrameworkCompatMiddleware(MiddlewareMixin):
+
+    non_cacheable_types = (
+        'application/x-www-form-urlencoded',
+        'multipart/form-data',
+        'application/octet-stream'
+    )
+
+    def process_request(self, request):
+        """
+        Access request.body, otherwise it might not be accessible later
+        after request has been read/streamed
+        """
+        content_type = request.META.get('CONTENT_TYPE', '')
+        for non_cacheable_type in self.non_cacheable_types:
+            if non_cacheable_type in content_type:
+                return
+        request.body  # forces stream to be read into memory

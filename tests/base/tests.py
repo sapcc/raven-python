@@ -5,9 +5,10 @@ import inspect
 import mock
 import raven
 import time
-import six
 import os
+import sys
 
+from raven.utils.compat import PY2
 from raven.base import Client, ClientState
 from raven.exceptions import RateLimited
 from raven.transport import AsyncTransport
@@ -163,13 +164,13 @@ class ClientTest(TestCase):
 
         # test recovery
         client.send_remote('http://example.com/api/1/store/', client.encode({}))
-        success_cb = async_send.call_args[0][2]
+        success_cb = async_send.call_args[0][3]
         success_cb()
         self.assertEquals(client.state.status, client.state.ONLINE)
 
         # test delayed raise of error
         client.send_remote('http://example.com/api/1/store/', client.encode({}))
-        failure_cb = async_send.call_args[0][3]
+        failure_cb = async_send.call_args[0][4]
         failure_cb(Exception())
         self.assertEquals(client.state.status, client.state.ERROR)
 
@@ -323,6 +324,45 @@ class ClientTest(TestCase):
         self.assertEquals(frame['abs_path'], __file__.replace('.pyc', '.py'))
         self.assertEquals(frame['filename'], 'tests/base/tests.py')
         self.assertEquals(frame['module'], __name__)
+
+    def test_exception_event_ignore_string(self):
+        class Foo(Exception):
+            pass
+
+        client = TempStoreClient(ignore_exceptions=['Foo'])
+        try:
+            raise Foo()
+        except Foo:
+            client.captureException()
+
+        self.assertEquals(len(client.events), 0)
+
+    def test_exception_event_ignore_class(self):
+        class Foo(Exception):
+            pass
+
+        client = TempStoreClient(ignore_exceptions=[Foo])
+        try:
+            raise Foo()
+        except Foo:
+            client.captureException()
+
+        self.assertEquals(len(client.events), 0)
+
+    def test_exception_event_ignore_child(self):
+        class Foo(Exception):
+            pass
+
+        class Bar(Foo):
+            pass
+
+        client = TempStoreClient(ignore_exceptions=[Foo])
+        try:
+            raise Bar()
+        except Bar:
+            client.captureException()
+
+        self.assertEquals(len(client.events), 0)
 
     def test_decorator_preserves_function(self):
         @self.client.capture_exceptions
@@ -505,11 +545,25 @@ class ClientTest(TestCase):
 
         self.assertEquals(len(self.client.events), 1)
         event = self.client.events.pop(0)
-        if six.PY3:
+        if not PY2:
             expected = {'logger': "'test'", 'foo': "'bar'"}
         else:
             expected = {'logger': "u'test'", 'foo': "u'bar'"}
         self.assertEquals(event['extra'], expected)
+
+    def test_sample_rate(self):
+        self.client.sample_rate = 0.0
+        self.client.captureMessage(message='test')
+        self.assertEquals(len(self.client.events), 0)
+
+    def test_sample_rate_per_message(self):
+        self.client.sample_rate = 1
+        self.client.captureMessage(message='test', sample_rate=0.0)
+        self.assertEquals(len(self.client.events), 0)
+
+        self.client.sample_rate = 0
+        self.client.captureMessage(message='test', sample_rate=1.0)
+        self.assertEquals(len(self.client.events), 1)
 
     def test_transport_registration(self):
         client = Client('http://public:secret@example.com/1',
@@ -568,3 +622,37 @@ class ClientTest(TestCase):
         assert not frames[1]['in_app']
         assert not frames[2]['in_app']
         assert frames[3]['in_app']
+
+    def test_captures_last_event_id(self):
+        client = TempStoreClient()
+        result = client.captureMessage('hello')
+
+        assert result == client.last_event_id
+
+    def test_no_sys_argv(self):
+        # if the python interpreter is started from C, sys.argv might not be available
+        # see https://github.com/getsentry/raven-python/issues/918
+        argv = sys.argv
+        try:
+            del sys.argv
+            Client()
+        finally:
+            sys.argv = argv
+
+    def test_repos_configuration(self):
+        client = Client(repos={
+            '/foo/bar': {
+                'name': 'repo',
+            },
+            'raven': {
+                'name': 'getsentry/raven-python',
+            },
+        })
+        assert client.repos == {
+            '/foo/bar': {
+                'name': 'repo',
+            },
+            os.path.abspath(raven.__file__): {
+                'name': 'getsentry/raven-python',
+            },
+        }

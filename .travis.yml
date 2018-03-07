@@ -7,49 +7,147 @@ addons:
 cache:
   directories:
     - "$HOME/.cache/pip"
-#deploy:
-#  provider: pypi
-#  user: getsentry
-#  password:
-#    secure: NMwOI1H9arp2vbgaidx9OY6y8990hiu0WsHtowEvEdGKXNzAQcy0sW3SoKcB6FN0bk11xhj49+5C++KAwMYwE/SL8Y5OoZ1/iYVI4/XlWNukr+1/pfPKVMgw3v5W+pL5Ba9TBdFfIoFPNYUDPLItSSjg94Bm95034gBkYWC5Hl0=
-#  on:
-#    tags: true
+branches:
+  only:
+    - master
+    - /^(?i:feature)-.*$/
+jobs:
+  fast_finish: true
+#  allow_failures:
+#    - python: 3.5
+#      env: TOXENV=py35-django-dev-fix
+
+  include:
+    - stage: core
+      python: 2.7
+      env: TOXENV=py27
+    - stage: core
+      python: 3.3
+      env: TOXENV=py33
+    - stage: core
+      python: 3.4
+      env: TOXENV=py34
+    - stage: core
+      python: 3.5
+      env: TOXENV=py35
+    - stage: core
+      python: pypy
+      env: TOXENV=pypy
+    - stage: core
+      python: 3.5
+      env: TOXENV=flake8
+
+
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-django-16
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-django-17
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-django-18
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-django-19
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-django-110
+
+
+    - stage: contrib
+      python: 3.3
+      env: TOXENV=py33-django-17
+    - stage: contrib
+      python: 3.3
+      env: TOXENV=py33-django-18
+
+    - stage: contrib
+      python: 3.4
+      env: TOXENV=py34-django-17
+    - stage: contrib
+      python: 3.4
+      env: TOXENV=py34-django-18
+    - stage: contrib
+      python: 3.4
+      env: TOXENV=py34-django-19
+    - stage: contrib
+      python: 3.4
+      env: TOXENV=py34-django-110
+
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-django-18
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-django-19
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-django-110
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-django-111-fix
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-django-200-fix
+#    - stage: contrib
+#      python: 3.5
+#      env: TOXENV=py35-django-dev-fix
+
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-flask-10
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-flask-11
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-flask-10
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-flask-11
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-flask-12
+
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-celery-3
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-celery-4
+
+    - stage: contrib
+      python: 2.7
+      env: TOXENV=py27-lambda
+
+    - stage: contrib
+      python: 3.6
+      env: TOXENV=py36-lambda
+
+    - stage: deploy
+      script: ./setup.py sdist --formats=gztar bdist_wheel
+      if: branch = master
+      python: 2.7
+      after_success:
+        - npm install -g @zeus-ci/cli
+        - zeus upload -t "application/zip+wheel" dist/*
+
+script: tox
 install:
-  - time ci/setup
-  - pip install codecov "coverage<4"
+  - make
+  - pip install codecov
 before_script:
   - pip freeze
-script:
-  - if [[ ${TRAVIS_PYTHON_VERSION} != 'pypy' ]]; then make lint; fi
-  - time ci/test
 after_success:
   - codecov -e DJANGO
-matrix:
-  fast_finish: true
-  allow_failures:
-    - python: 3.5
-      env: DJANGO=dev TEST_SUITE=django
-  include:
-    - python: 2.7
-      env: FLASK=0.10.1 TEST_SUITE=flask
-    - python: 2.7
-      env: FLASK=0.11.1 TEST_SUITE=flask
-    - python: 2.7
-      env: DJANGO=1.6.11 TEST_SUITE=django
-    - python: 2.7
-      env: DJANGO=1.8.7 TEST_SUITE=django
-    - python: 2.7
-      env: DJANGO=1.9 TEST_SUITE=django
-    - python: 2.7
-      env: DJANGO=1.10 TEST_SUITE=django
-    - python: 3.5
-      env: DJANGO=1.10 TEST_SUITE=django
-    - python: 3.5
-      env: DJANGO=dev TEST_SUITE=django
-    - python: 2.7
-      env: CELERY=3.1 TEST_SUITE=celery
-    - python: 2.7
-      env: CELERY=4.0 TEST_SUITE=celery
-    - python: 3.3
-    - python: 3.4
-    - python: 3.5
+
+notifications:
+  webhooks:
+    urls:
+      - https://zeus.ci/hooks/0b589ca4-1165-11e8-b03b-0a580a28023f/public/provider/travis/webhook
+    on_success: always
+    on_failure: always
+    on_start: always
+    on_cancel: always
+    on_error: always

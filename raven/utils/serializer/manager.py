@@ -9,7 +9,7 @@ from __future__ import absolute_import
 
 import logging
 from contextlib import closing
-from raven._compat import text_type
+from raven.utils.compat import text_type
 
 __all__ = ('register', 'transform')
 
@@ -64,12 +64,12 @@ class Serializer(object):
 
         try:
             for serializer in self.serializers:
-                if serializer.can(value):
-                    try:
+                try:
+                    if serializer.can(value):
                         return serializer.serialize(value, **kwargs)
-                    except Exception as e:
-                        logger.exception(e)
-                        return text_type(type(value))
+                except Exception as e:
+                    logger.exception(e)
+                    return text_type(type(value))
 
             # if all else fails, lets use the repr of the object
             try:

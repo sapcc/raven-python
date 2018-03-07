@@ -14,7 +14,7 @@ import logging
 import sys
 import traceback
 
-from raven._compat import string_types, iteritems, text_type
+from raven.utils.compat import string_types, iteritems, text_type
 from raven.base import Client
 from raven.utils.encoding import to_string
 from raven.utils.stacks import iter_stack_frames
@@ -26,7 +26,12 @@ RESERVED = frozenset((
 ))
 
 
-def extract_extra(record, reserved=RESERVED):
+CONTEXTUAL = frozenset((
+    'user', 'culprit', 'server_name', 'fingerprint'
+))
+
+
+def extract_extra(record, reserved=RESERVED, contextual=CONTEXTUAL):
     data = {}
 
     extra = getattr(record, 'data', None)
@@ -41,7 +46,7 @@ def extract_extra(record, reserved=RESERVED):
             continue
         if k.startswith('_'):
             continue
-        if '.' not in k and k not in ('culprit', 'server_name', 'fingerprint'):
+        if '.' not in k and k not in contextual:
             extra[k] = v
         else:
             data[k] = v
@@ -168,13 +173,15 @@ class SentryHandler(logging.Handler, object):
         data['level'] = record.levelno
         data['logger'] = record.name
 
-        if hasattr(record, 'tags'):
-            kwargs['tags'] = record.tags
-        elif self.tags:
-            kwargs['tags'] = self.tags
+        kwargs['tags'] = tags = {}
+        if self.tags:
+            tags.update(self.tags)
+        tags.update(getattr(record, 'tags', {}))
 
         kwargs.update(handler_kwargs)
+        sample_rate = extra.pop('sample_rate', None)
 
         return self.client.capture(
             event_type, stack=stack, data=data,
-            extra=extra, date=date, **kwargs)
+            extra=extra, date=date, sample_rate=sample_rate,
+            **kwargs)

@@ -48,8 +48,7 @@ class AsyncWorker(object):
         self.start()
 
     def main_thread_terminated(self):
-        self._lock.acquire()
-        try:
+        with self._lock:
             if not self.is_alive():
                 # thread not started or already stopped - nothing to do
                 return
@@ -60,9 +59,7 @@ class AsyncWorker(object):
             timeout = self.options['shutdown_timeout']
 
             # wait briefly, initially
-            initial_timeout = 0.1
-            if timeout < initial_timeout:
-                initial_timeout = timeout
+            initial_timeout = min(0.1, timeout)
 
             if not self._timed_queue_join(initial_timeout):
                 # if that didn't work, wait a bit longer
@@ -82,9 +79,6 @@ class AsyncWorker(object):
                 self._timed_queue_join(timeout - initial_timeout)
 
             self._thread = None
-
-        finally:
-            self._lock.release()
 
     def _timed_queue_join(self, timeout):
         """
@@ -129,15 +123,12 @@ class AsyncWorker(object):
         """
         Stops the task thread. Synchronous!
         """
-        self._lock.acquire()
-        try:
+        with self._lock:
             if self._thread:
                 self._queue.put_nowait(self._terminator)
                 self._thread.join(timeout=timeout)
                 self._thread = None
                 self._thread_for_pid = None
-        finally:
-            self._lock.release()
 
     def queue(self, callback, *args, **kwargs):
         self._ensure_thread()
@@ -169,14 +160,14 @@ class ThreadedHTTPTransport(AsyncTransport, HTTPTransport):
             self._worker = AsyncWorker()
         return self._worker
 
-    def send_sync(self, data, headers, success_cb, failure_cb):
+    def send_sync(self, url, data, headers, success_cb, failure_cb):
         try:
-            super(ThreadedHTTPTransport, self).send(data, headers)
+            super(ThreadedHTTPTransport, self).send(url, data, headers)
         except Exception as e:
             failure_cb(e)
         else:
             success_cb()
 
-    def async_send(self, data, headers, success_cb, failure_cb):
+    def async_send(self, url, data, headers, success_cb, failure_cb):
         self.get_worker().queue(
-            self.send_sync, data, headers, success_cb, failure_cb)
+            self.send_sync, url, data, headers, success_cb, failure_cb)

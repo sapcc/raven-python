@@ -17,7 +17,10 @@ import uuid
 import warnings
 
 from datetime import datetime
+from inspect import isclass
+from random import Random
 from types import FunctionType
+from threading import local
 
 if sys.version_info >= (3, 2):
     import contextlib
@@ -34,7 +37,7 @@ from raven.conf import defaults
 from raven.conf.remote import RemoteConfig
 from raven.exceptions import APIError, RateLimited
 from raven.utils import json, get_versions, get_auth_header, merge_dicts
-from raven._compat import text_type, iteritems
+from raven.utils.compat import text_type, iteritems
 from raven.utils.encoding import to_unicode
 from raven.utils.serializer import transform
 from raven.utils.stacks import get_stack_info, iter_stack_frames
@@ -59,12 +62,12 @@ SDK_VALUE = {
 # singleton for the client
 Raven = None
 
+if sys.version_info >= (3, 2):
+    basestring = str
+
 
 def get_excepthook_client():
-    hook = sys.excepthook
-    client = getattr(hook, 'raven_client', None)
-    if client is not None:
-        return client
+    return getattr(sys.excepthook, 'raven_client', None)
 
 
 class ModuleProxyCache(dict):
@@ -138,6 +141,7 @@ class Client(object):
     >>>     ident = client.get_ident(client.captureException())
     >>>     print "Exception caught; reference is %s" % ident
     """
+
     logger = logging.getLogger('raven')
     protocol_version = '6'
 
@@ -157,11 +161,15 @@ class Client(object):
 
     def __init__(self, dsn=None, raise_send_errors=False, transport=None,
                  install_sys_hook=True, install_logging_hook=True,
-                 hook_libraries=None, enable_breadcrumbs=True, **options):
+                 hook_libraries=None, enable_breadcrumbs=True,
+                 _random_seed=None, **options):
         self._check_pid()
+
         global Raven
 
         o = options
+
+        self._local_state = local()
 
         self.raise_send_errors = raise_send_errors
 
@@ -190,21 +198,29 @@ class Client(object):
         self.site = o.get('site')
         self.include_versions = o.get('include_versions', True)
         self.processors = o.get('processors')
+        self.sanitize_keys = o.get('sanitize_keys')
         if self.processors is None:
             self.processors = defaults.PROCESSORS
 
         context = o.get('context')
         if context is None:
-            context = {'sys.argv': sys.argv[:]}
+            context = {'sys.argv': getattr(sys, 'argv', [])[:]}
         self.extra = context
         self.tags = o.get('tags') or {}
         self.environment = o.get('environment') or None
         self.release = o.get('release') or os.environ.get('HEROKU_SLUG_COMMIT')
+        self.repos = self._format_repos(o.get('repos'))
+        self.sample_rate = (
+            o.get('sample_rate')
+            if o.get('sample_rate') is not None
+            else 1
+        )
         self.transaction = TransactionStack()
-
         self.ignore_exceptions = set(o.get('ignore_exceptions') or ())
 
         self.module_cache = ModuleProxyCache()
+
+        self._random = Random(_random_seed)
 
         if not self.is_enabled():
             self.logger.info(
@@ -229,6 +245,16 @@ class Client(object):
             self.install_logging_hook()
 
         self.hook_libraries(hook_libraries)
+
+    def _format_repos(self, value):
+        result = {}
+        if value:
+            for path, config in iteritems(value):
+                if path[0] != '/':
+                    # assume its a module
+                    path = os.path.abspath(__import__(path).__file__)
+                result[path] = config
+        return result
 
     def set_dsn(self, dsn=None, transport=None):
         if not dsn and os.environ.get('SENTRY_DSN'):
@@ -319,18 +345,17 @@ class Client(object):
         >>> # Specify a scheme to use (http or https)
         >>> print client.get_public_dsn('https')
         """
-        if not self.is_enabled():
-            return
-        url = self.remote.get_public_dsn()
-        if not scheme:
+        if self.is_enabled():
+            url = self.remote.get_public_dsn()
+            if scheme:
+                return '%s:%s' % (scheme, url)
+
             return url
-        return '%s:%s' % (scheme, url)
 
     def _get_exception_key(self, exc_info):
         # On certain celery versions the tb_frame attribute might
         # not exist or be `None`.
-        code_id = 0
-        last_id = 0
+        code_id = last_id = 0
         try:
             code_id = id(exc_info[2] and exc_info[2].tb_frame.f_code)
             last_id = exc_info[2] and exc_info[2].tb_lasti or 0
@@ -361,7 +386,6 @@ class Client(object):
         The result of ``build_msg`` should be a standardized dict, with
         all default values available.
         """
-
         # create ID client-side so that it can be passed to application
         event_id = uuid.uuid4().hex
 
@@ -479,6 +503,7 @@ class Client(object):
         data.setdefault('event_id', event_id)
         data.setdefault('platform', PLATFORM_NAME)
         data.setdefault('sdk', SDK_VALUE)
+        data.setdefault('repos', self.repos)
 
         # insert breadcrumbs
         if self.enable_breadcrumbs:
@@ -488,7 +513,9 @@ class Client(object):
                 # raven client internally in sentry and the alternative
                 # submission option of a list here is not supported by the
                 # internal sender.
-                data.setdefault('breadcrumbs', {'values': crumbs})
+                data.setdefault('breadcrumbs', {
+                    'values': crumbs
+                })
 
         return data
 
@@ -546,13 +573,15 @@ class Client(object):
         Update the tags context for future events.
 
         >>> client.tags_context({'version': '1.0'})
+
         """
         return self.context.merge({
             'tags': data,
         })
 
     def capture(self, event_type, data=None, date=None, time_spent=None,
-                extra=None, stack=None, tags=None, **kwargs):
+                extra=None, stack=None, tags=None, sample_rate=None,
+                **kwargs):
         """
         Captures and processes an event and pipes it off to SentryClient.send.
 
@@ -600,9 +629,9 @@ class Client(object):
         :param extra: a dictionary of additional standard metadata
         :param stack: a stacktrace for the event
         :param tags: dict of extra tags
+        :param sample_rate: a float in the range [0, 1] to sample this message
         :return: a tuple with a 32-length string identifying this event
         """
-
         if not self.is_enabled():
             return
 
@@ -621,7 +650,14 @@ class Client(object):
             event_type, data, date, time_spent, extra, stack, tags=tags,
             **kwargs)
 
-        self.send(**data)
+        # should this event be sampled?
+        if sample_rate is None:
+            sample_rate = self.sample_rate
+
+        if self._random.random() < sample_rate:
+            self.send(**data)
+
+        self._local_state.last_event_id = data['event_id']
 
         return data['event_id']
 
@@ -637,7 +673,7 @@ class Client(object):
             for frame in data['stacktrace']['frames']:
                 yield frame
         if 'exception' in data:
-            for frame in data['exception']['values'][-1]['stacktrace']['frames']:
+            for frame in data['exception']['values'][-1]['stacktrace'].get('frames', []):
                 yield frame
 
     def _successful_send(self):
@@ -671,7 +707,7 @@ class Client(object):
         output = [message]
         if 'exception' in data and 'stacktrace' in data['exception']['values'][-1]:
             # try to reconstruct a reasonable version of the exception
-            for frame in data['exception']['values'][-1]['stacktrace']['frames']:
+            for frame in data['exception']['values'][-1]['stacktrace'].get('frames', []):
                 output.append('  File "%(fn)s", line %(lineno)s, in %(func)s' % {
                     'fn': frame.get('filename', 'unknown_filename'),
                     'lineno': frame.get('lineno', -1),
@@ -699,11 +735,11 @@ class Client(object):
 
         try:
             transport = self.remote.get_transport()
-            if transport.async:
-                transport.async_send(data, headers, self._successful_send,
+            if transport.is_async:
+                transport.async_send(url, data, headers, self._successful_send,
                                      failed_send)
             else:
-                transport.send(data, headers)
+                transport.send(url, data, headers)
                 self._successful_send()
         except Exception as e:
             if self.raise_send_errors:
@@ -798,12 +834,15 @@ class Client(object):
         exc_type = exc_info[0]
         exc_name = '%s.%s' % (exc_type.__module__, exc_type.__name__)
         exclusions = self.ignore_exceptions
+        string_exclusions = (e for e in exclusions if isinstance(e, basestring))
+        wildcard_exclusions = (e for e in string_exclusions if e.endswith('*'))
+        class_exclusions = (e for e in exclusions if isclass(e))
 
-        if exc_type.__name__ in exclusions:
-            return False
-        elif exc_name in exclusions:
-            return False
-        elif any(exc_name.startswith(e[:-1]) for e in exclusions if e.endswith('*')):
+        if (exc_type in exclusions
+                or exc_type.__name__ in exclusions
+                or exc_name in exclusions
+                or any(issubclass(exc_type, e) for e in class_exclusions)
+                or any(exc_name.startswith(e[:-1]) for e in wildcard_exclusions)):
             return False
         return True
 
@@ -872,7 +911,8 @@ class Client(object):
         return self.context(**kwargs)
 
     def captureBreadcrumb(self, *args, **kwargs):
-        """Records a breadcrumb with the current context.  They will be
+        """
+        Records a breadcrumb with the current context.  They will be
         sent with the next event.
         """
         # Note: framework integration should not call this method but
@@ -882,8 +922,17 @@ class Client(object):
 
     capture_breadcrumb = captureBreadcrumb
 
+    @property
+    def last_event_id(self):
+        return getattr(self._local_state, 'last_event_id', None)
+
+    @last_event_id.setter
+    def last_event_id(self, value):
+        self._local_state.last_event_id = value
+
 
 class DummyClient(Client):
-    "Sends messages into an empty void"
+    """Sends messages into an empty void."""
+
     def send(self, **kwargs):
         return None

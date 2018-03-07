@@ -34,11 +34,9 @@ with open('raven/__init__.py', 'rb') as f:
         f.read().decode('utf-8')).group(1)))
 
 
-install_requires = [
-    'contextlib2',
-]
-
+install_requires = []
 unittest2_requires = ['unittest2']
+
 flask_requires = [
     'Flask>=0.8',
     'blinker>=1.1',
@@ -58,30 +56,36 @@ if sys.version_info[0] == 3:
     unittest2_requires = []
     webpy_tests_requires = []
 
-    # If it's python3.2 or greater, don't use contextlib backport
-    if sys.version_info[1] >= 2:
-        install_requires.remove('contextlib2')
-
 tests_require = [
-    'six',
     'bottle',
     'celery>=2.5',
+    'coverage<4',
     'exam>=0.5.2',
-    'flake8>=2.6,<2.7',
+    'flake8==3.5.0',
     'logbook',
     'mock',
     'nose',
     'pycodestyle',
     'pytz',
-    'pytest>=3.0.0,<3.1.0',
-    'pytest-timeout==0.4',
+    'pytest>=3.2.0,<3.3.0',
+    'pytest-timeout==1.2.0',
+    'pytest-xdist==1.18.2',
+    'pytest-pythonpath==0.7.1',
+    'pytest-sugar==0.9.0',
+    'pytest-cov',
+    'pytest-flake8==0.9.1',
     'requests',
     'tornado>=4.1',
+    'tox',
     'webob',
     'webtest',
+    'wheel',
     'anyjson',
-] + (flask_requires + flask_tests_requires +
-     unittest2_requires + webpy_tests_requires)
+    'ZConfig',
+] + (
+    flask_requires + flask_tests_requires +
+    unittest2_requires + webpy_tests_requires
+)
 
 
 class PyTest(TestCommand):
@@ -115,6 +119,7 @@ setup(
     extras_require={
         'flask': flask_requires,
         'tests': tests_require,
+        ':python_version<"3.2"': ['contextlib2'],
     },
     license='BSD',
     tests_require=tests_require,
@@ -134,11 +139,14 @@ setup(
         'Intended Audience :: System Administrators',
         'Operating System :: OS Independent',
         'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python',
         'Topic :: Software Development',
     ],

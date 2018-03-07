@@ -9,7 +9,7 @@ from __future__ import absolute_import, unicode_literals
 
 import warnings
 
-from raven._compat import integer_types, text_type, binary_type, \
+from raven.utils.compat import integer_types, text_type, binary_type, \
     string_types, PY2
 
 
@@ -84,7 +84,7 @@ def to_unicode(value):
         value = '(Error decoding value)'
     except Exception:  # in some cases we get a different exception
         try:
-            value = binary_type(repr(type(value)))
+            value = text_type(force_text(repr(type(value))))
         except Exception:
             value = '(Error decoding value)'
     return value
@@ -93,5 +93,5 @@ def to_unicode(value):
 def to_string(value):
     try:
         return binary_type(value.decode('utf-8').encode('utf-8'))
-    except:
+    except Exception:
         return to_unicode(value).encode('utf-8')
