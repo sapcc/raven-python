@@ -56,25 +56,29 @@ def extract_extra(record, reserved=RESERVED, contextual=CONTEXTUAL):
 
 class SentryHandler(logging.Handler, object):
     def __init__(self, *args, **kwargs):
-        client = kwargs.get('client_cls', Client)
-        if len(args) == 1:
-            arg = args[0]
-            if isinstance(arg, string_types):
-                self.client = client(dsn=arg, **kwargs)
-            elif isinstance(arg, Client):
-                self.client = arg
+        try:
+            client = kwargs.get('client_cls', Client)
+            if len(args) == 1:
+                arg = args[0]
+                if isinstance(arg, string_types):
+                    self.client = client(dsn=arg, **kwargs)
+                elif isinstance(arg, Client):
+                    self.client = arg
+                else:
+                    raise ValueError('The first argument to %s must be either a '
+                                     'Client instance or a DSN, got %r instead.' %
+                                     (self.__class__.__name__, arg,))
+            elif 'client' in kwargs:
+                self.client = kwargs['client']
             else:
-                raise ValueError('The first argument to %s must be either a '
-                                 'Client instance or a DSN, got %r instead.' %
-                                 (self.__class__.__name__, arg,))
-        elif 'client' in kwargs:
-            self.client = kwargs['client']
-        else:
-            self.client = client(*args, **kwargs)
+                self.client = client(*args, **kwargs)
 
-        self.tags = kwargs.pop('tags', None)
+            self.tags = kwargs.pop('tags', None)
 
-        logging.Handler.__init__(self, level=kwargs.get('level', logging.NOTSET))
+            logging.Handler.__init__(self, level=kwargs.get('level', logging.NOTSET))
+        except Exception as e:
+            self.client = None
+            print("Failed to initialize Sentry logging handler: %s" % e, file=sys.stderr)
 
     def can_record(self, record):
         return not (
@@ -83,22 +87,23 @@ class SentryHandler(logging.Handler, object):
         )
 
     def emit(self, record):
-        try:
-            # Beware to python3 bug (see #10805) if exc_info is (None, None, None)
-            self.format(record)
+        if self.client:
+            try:
+                # Beware to python3 bug (see #10805) if exc_info is (None, None, None)
+                self.format(record)
 
-            if not self.can_record(record):
-                print(to_string(record.message), file=sys.stderr)
-                return
+                if not self.can_record(record):
+                    print(to_string(record.message), file=sys.stderr)
+                    return
 
-            return self._emit(record)
-        except Exception:
-            if self.client.raise_send_errors:
-                raise
-            print("Top level Sentry exception caught - failed "
-                  "creating log record", file=sys.stderr)
-            print(to_string(record.msg), file=sys.stderr)
-            print(to_string(traceback.format_exc()), file=sys.stderr)
+                return self._emit(record)
+            except Exception:
+                if self.client.raise_send_errors:
+                    raise
+                print("Top level Sentry exception caught - failed "
+                      "creating log record", file=sys.stderr)
+                print(to_string(record.msg), file=sys.stderr)
+                print(to_string(traceback.format_exc()), file=sys.stderr)
 
     def _get_targetted_stack(self, stack, record):
         # we might need to traverse this multiple times, so coerce it to a list
