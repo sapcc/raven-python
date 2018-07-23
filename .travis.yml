@@ -22,14 +22,14 @@ jobs:
       python: 2.7
       env: TOXENV=py27
     - stage: core
-      python: 3.3
-      env: TOXENV=py33
-    - stage: core
       python: 3.4
       env: TOXENV=py34
     - stage: core
       python: 3.5
       env: TOXENV=py35
+    - stage: core
+      python: 3.6
+      env: TOXENV=py36
     - stage: core
       python: pypy
       env: TOXENV=pypy
@@ -53,14 +53,6 @@ jobs:
     - stage: contrib
       python: 2.7
       env: TOXENV=py27-django-110
-
-
-    - stage: contrib
-      python: 3.3
-      env: TOXENV=py33-django-17
-    - stage: contrib
-      python: 3.3
-      env: TOXENV=py33-django-18
 
     - stage: contrib
       python: 3.4
@@ -86,10 +78,10 @@ jobs:
       env: TOXENV=py35-django-110
     - stage: contrib
       python: 3.5
-      env: TOXENV=py35-django-111-fix
+      env: TOXENV=py35-django-111
     - stage: contrib
       python: 3.5
-      env: TOXENV=py35-django-200-fix
+      env: TOXENV=py35-django-200
 #    - stage: contrib
 #      python: 3.5
 #      env: TOXENV=py35-django-dev-fix
@@ -125,13 +117,21 @@ jobs:
       python: 3.6
       env: TOXENV=py36-lambda
 
-    - stage: deploy
-      script: ./setup.py sdist --formats=gztar bdist_wheel
-      if: branch = master
-      python: 2.7
-      after_success:
-        - npm install -g @zeus-ci/cli
-        - zeus upload -t "application/zip+wheel" dist/*
+    - stage: contrib
+      python: 3.5
+      env: TOXENV=py35-sanic-07
+
+    - stage: contrib
+      python: 3.6
+      env: TOXENV=py36-sanic-07
+
+      #- stage: deploy
+      # script: ./setup.py sdist --formats=gztar bdist_wheel
+      #if: branch = master
+      #python: 2.7
+      #after_success:
+      #  - npm install -g @zeus-ci/cli
+      #  - zeus upload -t "application/zip+wheel" dist/*
 
 script: tox
 install:
